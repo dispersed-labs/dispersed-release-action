@@ -1,0 +1,49 @@
+name: Dispersed Network Release
+description: Create a Dispersed Network bundle, upload it as a Release asset, and create an Issue for tracking manual publishing.
+inputs:
+  build_dir:
+    description: Project build directory
+    required: true
+  bundle_name:
+    description: Filename for the bundle
+    required: true
+  github_token:
+    description: Auth token for the GitHub CLI
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install dispersed-cli
+      run: npm install dispersed-cli@0.1.4
+      shell: bash
+
+    - name: Create bundle
+      run: npx dispersed bundle ${{ inputs.bundle_name }} ${{ inputs.build_dir }}
+      shell: bash
+
+    - name: Upload bundle to Release
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: gh release upload ${{ github.ref_name }} ${{ inputs.bundle_name }}
+      shell: bash
+
+    - name: Gather metadata
+      id: metadata
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: |
+        echo "::set-output name=bundle_checksum::$(npx dispersed checksum ${{ inputs.bundle_name }})"
+        echo "::set-output name=bundle_url::$(gh release view ${{ github.ref_name }} --json assets --jq '.assets[] | select(.name = "${{ inputs.bundle_name }}") | .url')"
+        echo "::set-output name=author::$(gh release view ${{ github.ref_name }} --json author --jq .author.login)"
+      shell: bash
+
+    - name: Create GitHub Issue
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: |
+        echo -e "Dispersed Network Console: https://app.dispersed.network\n\nBundle URL:\n\`\`\`\n${{ steps.metadata.outputs.bundle_url }}\n\`\`\`\nBundle Checksum:\n\`\`\`\n${{ steps.metadata.outputs.bundle_checksum }}\n\`\`\`" | \
+        gh issue create \
+          --assignee ${{ steps.metadata.outputs.author }} \
+          --title "Publish ${{ github.ref_name }} to the Dispersed Network" \
+          --body-file -
+      shell: bash
